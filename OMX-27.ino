@@ -105,6 +105,15 @@ int newoctave = octave;
 int transpose = 0;
 int rotationAmt = 0;
 int hline = 8;
+
+// Menu
+bool inMenu = false;
+int menuItem = 0;
+bool selectedMenuItem = false;
+
+int menuItemValues[6] = { 0,0,0,0,0,0 };
+//int menuLevel = 0;
+
 // CV 
 int pitchCV;
 uint8_t RES;
@@ -496,6 +505,7 @@ void dispValBox(int v, int16_t n, bool inv){			// n is box 0-3
 }
 
 void dispMidiMode(){
+	Serial.println( "disp midi" );
 	u8g2_display.setFontMode(1);  
 	u8g2_display.setFont(FONT_LABELS);
 	u8g2_display.setCursor(0, 0);
@@ -801,6 +811,7 @@ void dispInfoDialog(){
 }
 
 void dispMode(){
+	Serial.println( "disp mode" );
 	// labels formatting
 	u8g2_display.setFontMode(1);  
 	u8g2_display.setFont(FONT_BIG);
@@ -816,6 +827,38 @@ void dispMode(){
 		displaymode = modes[mode]; // display.print(modes[mode]);
 	}
 	u8g2centerText(displaymode, 86, 20, 44, 32);
+}
+
+void dispMenu() {
+	Serial.println( "disp menu" );
+	u8g2_display.setFontMode(1);  
+	u8g2_display.setFont(FONT_BIG);
+	u8g2_display.setCursor(0, 0);	
+
+	u8g2_display.setForegroundColor(WHITE);
+	u8g2_display.setBackgroundColor(BLACK);
+
+	char buf[32];
+	snprintf( buf, sizeof(buf), "menu %d: %d", menuItem, menuItemValues[menuItem] );
+
+	u8g2centerText( buf, 0, 12, 128, 32 );
+
+	if ( selectedMenuItem )
+	{
+		display.fillRect(0, 0, 8, 8, WHITE);		
+	}
+
+	// generate menu items
+	// 0 - 		Mode
+	// 1 - N 	Mode Settings
+	// N+1 		General >
+
+	// General
+	// CC1 -> CC5
+	// Reset EEPROM
+
+	// M1
+	// 
 }
 
 void dispPattLen(){
@@ -910,9 +953,28 @@ void loop() {
     	auto amt = u.accel(5); // where 5 is the acceleration factor if you want it, 0 if you don't)
 //    	Serial.println(u.dir() < 0 ? "ccw " : "cw ");
 //    	Serial.println(amt);
+
+		if ( inMenu ) {
+			// MODE
+			// ... Mode Options
+			// Set CC Options
+			// RESET EEPROP
+
+			// menuItem
+
+			if ( selectedMenuItem ) {
+				menuItemValues[menuItem] = constrain( menuItemValues[menuItem] + amt, 0, 10 );
+			}
+			else {
+				menuItem = constrain( menuItem + amt, 0, 5 );
+			}		
+
+			dispMenu();
+			dirtyDisplay = true;
+		}
     	
 		// Change Mode
-    	if (enc_edit) {
+/*     	if (enc_edit) {
 			// set mode
 			int modesize = numModes-1;
 //			Serial.println(modesize);
@@ -920,7 +982,9 @@ void loop() {
 	    	dispMode();
 	    	dirtyDisplay = true;
 
-		} else if (!noteSelect && !patternParams && !stepRecord){  
+		} else  */
+		
+		if (!noteSelect && !patternParams && !stepRecord){  
 			switch(mode) { 
 				case 3: // Organelle Mother
 					if(u.dir() < 0){									// if turn ccw
@@ -1069,7 +1133,7 @@ void loop() {
 		case Button::Down: //Serial.println("Button down"); 
 
 			// what page are we on?
-			if (newmode != mode && enc_edit) {
+			/* if (newmode != mode && enc_edit) {
 				mode = newmode;
 				seqStop();
 				setAllLEDS(0,0,0);
@@ -1077,6 +1141,20 @@ void loop() {
 				dispMode();
 			} else if (enc_edit){
 				enc_edit = false;
+			} */
+
+			if ( inMenu ) {
+				if ( !selectedMenuItem ) {
+					selectedMenuItem = true;
+					Serial.println( "-> menu selected item" );
+					dispMenu();
+				}
+				else {
+					// back out of the selection
+					selectedMenuItem = false;
+					Serial.println( "<- menu selected item" );
+					dispMenu();
+				}
 			}
 
 			if(mode == 0) {
@@ -1115,8 +1193,13 @@ void loop() {
 				resetPatternDefaults(playingPattern);
 				clearedFlag = true;
 			} else {
-				enc_edit = true;		
-				dispMode();
+				//enc_edit = true;		
+				//dispMode();
+
+				if ( !inMenu ) {
+					inMenu = true;
+					dispMenu();
+				}
 			}
 			dirtyDisplay = true;
 			
@@ -1140,6 +1223,22 @@ void loop() {
 		keypadEvent e = customKeypad.read();
 		int thisKey = e.bit.KEY;
 		int keyPos = thisKey - 11;
+
+		if ( inMenu && thisKey == 0 && e.bit.EVENT == KEY_JUST_PRESSED ) {
+			Serial.println( "0 pressed" );
+
+			// back out one level or exit if we're at the root
+			if ( selectedMenuItem ) {
+				selectedMenuItem = false;
+				Serial.println( "back out of selection" );
+				dispMenu();
+			} else {
+				Serial.println( "back out of menu" );
+				inMenu = false;
+				dispMode();
+			}			
+			dirtyDisplay = true;
+		}
 
 		if (e.bit.EVENT == KEY_JUST_PRESSED){
 			keyState[thisKey] = true;
@@ -1456,7 +1555,8 @@ void loop() {
 
 	// ############### MODES DISPLAY  ##############
 
-	switch(mode){
+	//if ( !inMenu ) {
+		switch(mode){
 		case 3: 						// ############## ORGANELLE MODE
 			// FALL THROUGH
 
@@ -1465,7 +1565,7 @@ void loop() {
 			midi_leds();				// SHOW LEDS
 
 			if (dirtyDisplay){			// DISPLAY
-				if (!enc_edit){
+				if (!enc_edit && !inMenu ){
 					dispMidiMode();
 				}
 			}
@@ -1504,11 +1604,10 @@ void loop() {
 					}
 					
 				}
-			}
-			
+			}			
 			break;
-
-	}
+		}
+	//}	
 
 //	Serial.print("one:");
 //	Serial.println(checktime1);
