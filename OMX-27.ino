@@ -107,12 +107,43 @@ int rotationAmt = 0;
 int hline = 8;
 
 // Menu
+
+#define NUM_MENU_ITEMS 9
 bool inMenu = false;
 int menuItem = 0;
 bool selectedMenuItem = false;
 
-int menuItemValues[6] = { 0,0,0,0,0,0 };
-//int menuLevel = 0;
+struct menuItem_t {
+	char displaystring[32];
+
+	int *pValue;
+
+	int nMinValue;
+	int nMaxValue;
+
+	// OR
+	// markup for submenu
+	// !pValue means 
+
+	bool bSelectable;	// just a display like 
+};
+
+int version = 12;
+
+menuItem_t menuItems[NUM_MENU_ITEMS] = {
+	{ "Mode", &mode, 0, 3, true },
+
+	{ "Save", NULL, 0, 0, false },	// select -> "Saved" message
+
+	{ "CC1", &pots[0], 0, 127, true },
+	{ "CC2", &pots[1], 0, 127, true },
+	{ "CC3", &pots[2], 0, 127, true },
+	{ "CC4", &pots[3], 0, 127, true },
+	{ "CC5", &pots[4], 0, 127, true },
+
+	{ "Reset EEPROM", NULL, 0, 0, false },	// select -> confirm reset -> reset
+	{ "Version", &version, 0, 0, false }
+};
 
 // CV 
 int pitchCV;
@@ -186,6 +217,9 @@ void sendPots(int val){
 }
 
 void readPotentimeters(){
+	if ( inMenu  )
+		return;
+
 	for(int k=0; k<potCount; k++) {
 		temp = analogRead(analogPins[k]);
 		analog[k]->update(temp);
@@ -832,33 +866,51 @@ void dispMode(){
 void dispMenu() {
 	Serial.println( "disp menu" );
 	u8g2_display.setFontMode(1);  
-	u8g2_display.setFont(FONT_BIG);
+	u8g2_display.setFont(FONT_VALUES);
 	u8g2_display.setCursor(0, 0);	
 
 	u8g2_display.setForegroundColor(WHITE);
 	u8g2_display.setBackgroundColor(BLACK);
 
 	char buf[32];
-	snprintf( buf, sizeof(buf), "menu %d: %d", menuItem, menuItemValues[menuItem] );
+	menuItem_t *pItem = &menuItems[menuItem];
+	if ( pItem->pValue )
+	{
+		if ( menuItem == 0 )
+		{
+			// mode
+			snprintf( buf, sizeof(buf), "%s: %s", pItem->displaystring, modes[*pItem->pValue] );	
+		}
+		else
+		{
+			// numeric
+			snprintf( buf, sizeof(buf), "%s: %d", pItem->displaystring, *pItem->pValue );
+		}		
+	}
+	else
+	{
+		// display only
+		snprintf( buf, sizeof(buf), "%s", pItem->displaystring );	
+	}	
 
-	u8g2centerText( buf, 0, 12, 128, 32 );
+	u8g2HorizontalCenterText( buf, 0, 12, 128 );
 
 	if ( selectedMenuItem )
 	{
 		display.fillRect(0, 0, 8, 8, WHITE);		
 	}
 
-	// generate menu items
-	// 0 - 		Mode
-	// 1 - N 	Mode Settings
-	// N+1 		General >
+	if ( menuItem > 0 )
+	{
+		// draw the up arrow
+		u8g2HorizontalCenterText( "^", 0, 1, 128 );		
+	}
 
-	// General
-	// CC1 -> CC5
-	// Reset EEPROM
-
-	// M1
-	// 
+	if ( menuItem < ( NUM_MENU_ITEMS - 1 ) )
+	{
+		// draw the down arrow
+		u8g2HorizontalCenterText( "v", 0, 24, 128 );
+	}
 }
 
 void dispPattLen(){
@@ -963,10 +1015,11 @@ void loop() {
 			// menuItem
 
 			if ( selectedMenuItem ) {
-				menuItemValues[menuItem] = constrain( menuItemValues[menuItem] + amt, 0, 10 );
+				menuItem_t *pItem = &menuItems[menuItem];
+				*pItem->pValue = constrain( (*pItem->pValue + amt), pItem->nMinValue, pItem->nMaxValue );
 			}
 			else {
-				menuItem = constrain( menuItem + amt, 0, 5 );
+				menuItem = constrain( menuItem + amt, 0, NUM_MENU_ITEMS-1 );
 			}		
 
 			dispMenu();
@@ -1145,16 +1198,18 @@ void loop() {
 
 			if ( inMenu ) {
 				if ( !selectedMenuItem ) {
-					selectedMenuItem = true;
-					Serial.println( "-> menu selected item" );
-					dispMenu();
+					if ( menuItems[menuItem].bSelectable ) {
+						selectedMenuItem = true;
+						Serial.println( "-> menu selected item" );
+					}
 				}
 				else {
 					// back out of the selection
 					selectedMenuItem = false;
 					Serial.println( "<- menu selected item" );
-					dispMenu();
 				}
+
+				dispMenu();
 			}
 
 			if(mode == 0) {
@@ -1574,7 +1629,7 @@ void loop() {
 		case 1: 						// ############## SEQUENCER 1
 			// FALL THROUGH
 		case 2: 						// ############## SEQUENCER 2
-			if (!enc_edit) {
+			if (!enc_edit && !inMenu) {
 				if (dialogTimeout > dialogDuration && dialogTimeout < dialogDuration + 20) {
 					dirtyDisplay = true;
 //					Serial.println("dirty");
@@ -1582,7 +1637,7 @@ void loop() {
 			}
 	
 			if (dirtyDisplay){			// DISPLAY
-				if (!enc_edit){
+				if (!enc_edit && !inMenu){
 					if (!noteSelect and !patternParams and !stepRecord){
 						dispSeqMode1();
 						dispInfoDialog();
@@ -1946,6 +2001,17 @@ void u8g2centerText(const char* s, int16_t x, int16_t y, uint16_t w, uint16_t h)
   u8g2_display.setCursor(
     x + (w - bw) / 2,
     y + (h - bh) / 2
+  );
+  u8g2_display.print(s);
+}
+
+void u8g2HorizontalCenterText(const char* s, int16_t x, int16_t y, uint16_t w) {
+  uint16_t bw, bh;
+  bw = u8g2_display.getUTF8Width(s);
+  bh = u8g2_display.getFontAscent();
+  u8g2_display.setCursor(
+    x + (w - bw) / 2,
+    y + bh
   );
   u8g2_display.print(s);
 }

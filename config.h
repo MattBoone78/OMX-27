@@ -25,7 +25,7 @@ const int analogPins[] = {A10,22,21,20,16};	// teensy pins for analog inputs
 						// {23,A10,21,20,16} on test
 						// {A10,22,21,20,16} on 1.0
 
-const int pots[] = {CC1,CC2,CC3,CC4,CC5};			// the MIDI CC (continuous controller) for each analog input
+int pots[] = {CC1,CC2,CC3,CC4,CC5};			// the MIDI CC (continuous controller) for each analog input
 
 const int gridh = 32;
 const int gridw = 128;
